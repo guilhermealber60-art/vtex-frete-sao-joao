@@ -447,6 +447,91 @@ tr.mod-unchecked .mod-prazo-fixed {
   white-space: pre-wrap;
 }
 
+.map-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+#mapEl {
+  height: 420px;
+  border-radius: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  background: #eef0f3;
+}
+
+.map-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+
+.map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.leaflet-popup-content {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.bairro-label {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.bairro-label::before { display: none; }
+
+.geo-token {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.geo-token summary {
+  cursor: pointer;
+}
+
+.geo-token label {
+  margin-top: 10px;
+}
+
+#notFoundList {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+#notFoundList li {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+#notFoundList li:last-child { border-bottom: none; }
+
 .app-footer {
   text-align: center;
   color: var(--text-muted);

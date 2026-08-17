@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Gerador de Frete VTEX — Farmácias São João</title>
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 <header class="app-header">
@@ -154,6 +155,39 @@
     </div>
   </section>
 
+  <section class="card" id="section-map">
+    <h2>4. Mapa de cobertura</h2>
+    <p class="hint">Geocodifica cada CEP (com cache local para nunca reconsultar o mesmo CEP duas vezes) usando fontes brasileiras gratuitas — AwesomeAPI CEP como principal, CEP Aberto como reserva opcional — e agrupa os resultados por <strong>bairro</strong>: o mapa marca só os bairros que aparecem na sua lista de CEPs, um marcador por bairro. Em listas de faixas de CEP, as duas pontas de cada faixa entram no agrupamento, então uma faixa pode acrescentar mais de um bairro. Só os CEPs são enviados a essas APIs públicas para desenhar o mapa; a geração das planilhas continua 100% local.</p>
+
+    <div class="options-row map-actions">
+      <button type="button" id="updateMapBtn" class="secondary-btn">Atualizar mapa</button>
+      <button type="button" id="downloadCoordsBtn" class="secondary-btn" disabled>Baixar coordenadas dos bairros (CSV)</button>
+      <button type="button" id="downloadReportBtn" class="secondary-btn" disabled>Exportar relatório de bairros (CSV)</button>
+    </div>
+    <p class="hint" id="mapStatus">Cole os CEPs acima e clique em "Atualizar mapa".</p>
+
+    <div id="mapEl"></div>
+
+    <div class="map-legend">
+      <span><i style="background:#2e7d32"></i> 45 min</span>
+      <span><i style="background:#f9a825"></i> 1 hora</span>
+      <span><i style="background:#c62828"></i> 2 horas</span>
+      <span class="hint">(cor = prazo predominante no bairro)</span>
+    </div>
+
+    <div class="invalid-panel">
+      <button type="button" id="toggleNotFoundBtn" class="link-btn">Ver prefixos não localizados (0)</button>
+      <div id="notFoundWrap" hidden><ul id="notFoundList"></ul></div>
+    </div>
+
+    <details class="geo-token">
+      <summary class="link-btn">Token CEP Aberto (opcional, usado como reserva)</summary>
+      <label for="cepAbertoToken">Token da API CEP Aberto</label>
+      <input type="text" id="cepAbertoToken" placeholder="Cole aqui um token gratuito de cepaberto.com, se tiver" />
+      <p class="hint">Só é consultado quando a AwesomeAPI não encontra o prefixo. Cadastro gratuito em cepaberto.com.</p>
+    </details>
+  </section>
+
   <section class="card" id="section-generate">
     <h2>5. Gerar arquivos</h2>
     <button type="button" id="generateBtn" class="primary-btn">Gerar e baixar arquivos</button>
@@ -164,11 +198,12 @@
 </main>
 
 <footer class="app-footer">
-  <p>Processamento 100% local no navegador. Nenhum CEP ou dado é enviado para fora deste dispositivo.</p>
+  <p>Geração das planilhas 100% local no navegador — nenhum CEP ou dado da tabela de frete é enviado a servidor. O mapa (seção 4) é a única exceção: envia prefixos de CEP a APIs públicas de geocodificação para posicionar os marcadores.</p>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

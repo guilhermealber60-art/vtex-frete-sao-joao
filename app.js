@@ -61,6 +61,14 @@
   const advancedPanel = el("advancedPanel");
   const prazoTabs = document.querySelectorAll(".prazo-tab");
   const prazoPanels = document.querySelectorAll(".prazo-panel");
+  const updateMapBtn = el("updateMapBtn");
+  const downloadCoordsBtn = el("downloadCoordsBtn");
+  const downloadReportBtn = el("downloadReportBtn");
+  const mapStatus = el("mapStatus");
+  const toggleNotFoundBtn = el("toggleNotFoundBtn");
+  const notFoundWrap = el("notFoundWrap");
+  const notFoundList = el("notFoundList");
+  const cepAbertoTokenInput = el("cepAbertoToken");
 
   // ---------- Helpers ----------
   function pad2(n) { return String(n).padStart(2, "0"); }
@@ -104,6 +112,15 @@
     statusLog.hidden = false;
     statusLog.textContent += msg + "\n";
     statusLog.scrollTop = statusLog.scrollHeight;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function csvEscape(value) {
+    const s = String(value);
+    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
   // ---------- Prazo tabs (CEP paste areas) ----------
@@ -650,6 +667,280 @@
 
   generateBtn.addEventListener("click", generate);
 
+  // ---------- Map / free geocoding ----------
+  // Each CEP is geocoded on its own (cached by full CEP), but the map only marks
+  // the neighborhood (bairro) each one resolves to - one marker per distinct
+  // bairro, not one per CEP - since that is what "which areas does this list
+  // cover" actually calls for. Free CEP APIs return bairro/city/state alongside
+  // lat/lng, so this needs no extra requests beyond what geocoding already does.
+  const PRAZO_COLORS = { "45min": "#2e7d32", "1h": "#f9a825", "2h": "#c62828" };
+  const GEO_CACHE_KEY = "vtexFreteApp.geoCache.v3";
+  const NO_BAIRRO_LABEL = "Bairro nao informado";
+
+  let map = null;
+  let markersLayer = null;
+  let markerData = [];
+  let geoCache = loadGeoCache();
+  let geoQueriesThisRun = 0;
+
+  function loadGeoCache() {
+    try {
+      return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveGeoCache() {
+    try {
+      localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(geoCache));
+    } catch (e) {
+      // localStorage indisponivel (modo privado etc.) - cache fica so em memoria.
+    }
+  }
+
+  function initMap() {
+    if (map || typeof L === "undefined") return;
+    map = L.map("mapEl").setView([-14.235, -51.9253], 4);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+  }
+
+  function pickGeoInfo(data, source) {
+    if (source === "awesome") {
+      const lat = parseFloat(data.lat);
+      const lng = parseFloat(data.lng);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+      return { lat, lng, bairro: (data.district || "").trim(), cidade: (data.city || "").trim(), uf: (data.state || "").trim() };
+    }
+    const lat = parseFloat(data.latitude);
+    const lng = parseFloat(data.longitude);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return {
+      lat,
+      lng,
+      bairro: (data.bairro || "").trim(),
+      cidade: (data.cidade && data.cidade.nome ? data.cidade.nome : "").trim(),
+      uf: (data.estado && data.estado.sigla ? data.estado.sigla : "").trim()
+    };
+  }
+
+  async function geocodeCep(cep) {
+    try {
+      const resp = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`);
+      if (resp.ok) {
+        const info = pickGeoInfo(await resp.json(), "awesome");
+        if (info) return info;
+      }
+    } catch (e) {
+      // AwesomeAPI indisponivel - tenta a reserva abaixo.
+    }
+    const token = cepAbertoTokenInput.value.trim();
+    if (token) {
+      try {
+        const resp = await fetch(`https://www.cepaberto.com/api/v3/cep?cep=${cep}`, {
+          headers: { Authorization: `Token token=${token}` }
+        });
+        if (resp.ok) {
+          const info = pickGeoInfo(await resp.json(), "cepaberto");
+          if (info) return info;
+        }
+      } catch (e) {
+        // CEP Aberto indisponivel ou sem CORS - CEP fica como nao encontrado.
+      }
+    }
+    return null;
+  }
+
+  async function resolveCep(cep) {
+    let info = geoCache[cep];
+    if (info === undefined) {
+      info = await geocodeCep(cep);
+      geoCache[cep] = info;
+      saveGeoCache();
+      geoQueriesThisRun++;
+      await sleep(120);
+    }
+    return info;
+  }
+
+  function dominantPrazo(counts) {
+    let best = "2h";
+    let max = -1;
+    PRAZO_KEYS.forEach((k) => {
+      if (counts[k] > max) {
+        max = counts[k];
+        best = k;
+      }
+    });
+    return best;
+  }
+
+  function renderNotFound(notFound) {
+    toggleNotFoundBtn.textContent = `Ver CEPs/faixas nao localizados (${notFound.length})`;
+    notFoundList.innerHTML = "";
+    notFound.forEach((label) => {
+      const li = document.createElement("li");
+      li.textContent = label;
+      notFoundList.appendChild(li);
+    });
+  }
+
+  async function updateMap() {
+    initMap();
+    if (!map) {
+      mapStatus.textContent = "Nao foi possivel carregar o mapa (Leaflet nao disponivel).";
+      return;
+    }
+    const records = state.parsed.validUnique;
+    if (!records.length) {
+      mapStatus.textContent = "Nenhum CEP valido para exibir. Cole os CEPs acima primeiro.";
+      return;
+    }
+
+    updateMapBtn.disabled = true;
+    downloadCoordsBtn.disabled = true;
+    downloadReportBtn.disabled = true;
+    markersLayer.clearLayers();
+    markerData = [];
+    geoQueriesThisRun = 0;
+
+    const rangeMode = state.parsed.rangeMode;
+    const notFound = [];
+    const bairroGroups = {};
+    let done = 0;
+
+    function addToBairro(info, cep, prazo) {
+      const bairro = info.bairro || NO_BAIRRO_LABEL;
+      const key = `${bairro.toUpperCase()}|${info.cidade.toUpperCase()}|${info.uf.toUpperCase()}`;
+      if (!bairroGroups[key]) {
+        bairroGroups[key] = {
+          bairro,
+          cidade: info.cidade,
+          uf: info.uf,
+          latSum: 0,
+          lngSum: 0,
+          count: 0,
+          ceps: [],
+          prazoCounts: { "45min": 0, "1h": 0, "2h": 0 }
+        };
+      }
+      const g = bairroGroups[key];
+      g.latSum += info.lat;
+      g.lngSum += info.lng;
+      g.count++;
+      g.ceps.push({ cep, prazo });
+      g.prazoCounts[prazo]++;
+    }
+
+    for (const rec of records) {
+      mapStatus.textContent = rangeMode
+        ? `Geocodificando faixas... ${done}/${records.length}`
+        : `Geocodificando CEPs... ${done}/${records.length}`;
+
+      if (!rangeMode) {
+        const info = await resolveCep(rec.cepStart);
+        done++;
+        if (info) addToBairro(info, rec.cepStart, rec.prazo);
+        else notFound.push(rec.cepStart);
+        continue;
+      }
+
+      const startInfo = await resolveCep(rec.cepStart);
+      const endInfo = await resolveCep(rec.cepEnd);
+      done++;
+      const label = `${rec.cepStart} a ${rec.cepEnd}`;
+      if (startInfo) addToBairro(startInfo, rec.cepStart, rec.prazo);
+      if (endInfo) addToBairro(endInfo, rec.cepEnd, rec.prazo);
+      if (!startInfo && !endInfo) notFound.push(label);
+      else if (!startInfo || !endInfo) notFound.push(`${label} (so uma ponta localizada)`);
+    }
+
+    const allLatLngs = [];
+    Object.values(bairroGroups).forEach((g) => {
+      const lat = g.latSum / g.count;
+      const lng = g.lngSum / g.count;
+      const color = PRAZO_COLORS[dominantPrazo(g.prazoCounts)];
+      const marker = L.circleMarker([lat, lng], { radius: 9, weight: 1.5, color: "#fff", fillColor: color, fillOpacity: 0.9 });
+      marker.bindTooltip(g.bairro, { permanent: true, direction: "top", offset: [0, -6], className: "bairro-label" });
+      const sample = g.ceps
+        .slice(0, 15)
+        .map((c) => `${c.cep} (${PRAZO_LABELS[c.prazo]})`)
+        .join("<br>");
+      const more = g.ceps.length > 15 ? `<br>+${g.ceps.length - 15} mais` : "";
+      const local = g.cidade ? `${g.cidade}${g.uf ? "/" + g.uf : ""}` : "";
+      marker.bindPopup(`<strong>${g.bairro}</strong>${local ? " - " + local : ""}<br>${g.count} CEP(s)<br>${sample}${more}`);
+      marker.addTo(markersLayer);
+      markerData.push({
+        bairro: g.bairro,
+        cidade: g.cidade,
+        uf: g.uf,
+        lat,
+        lng,
+        count: g.count,
+        prazoCounts: g.prazoCounts,
+        ceps: g.ceps
+      });
+      allLatLngs.push([lat, lng]);
+    });
+
+    if (allLatLngs.length) {
+      map.fitBounds(L.latLngBounds(allLatLngs).pad(0.15));
+    }
+
+    renderNotFound(notFound);
+    mapStatus.textContent = `${markerData.length} bairro(s) localizados a partir de ${records.length} registro(s) (${geoQueriesThisRun} consulta(s) nova(s), resto veio do cache). ${notFound.length} nao encontrado(s).`;
+    downloadCoordsBtn.disabled = markerData.length === 0;
+    downloadReportBtn.disabled = markerData.length === 0;
+    updateMapBtn.disabled = false;
+  }
+
+  function downloadCoordsCsv() {
+    if (!markerData.length) return;
+    const header = ["bairro", "cidade", "uf", "latitude", "longitude", "qtd_ceps"];
+    const rows = [header];
+    markerData.forEach((m) => {
+      rows.push([m.bairro, m.cidade, m.uf, m.lat, m.lng, m.count]);
+    });
+    const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    triggerDownload(blob, "bairros_coordenadas.csv");
+  }
+
+  function downloadBairroReport() {
+    if (!markerData.length) return;
+    const header = ["bairro", "cidade", "uf", "qtd_ceps", "prazo_45min", "prazo_1h", "prazo_2h", "ceps"];
+    const rows = [header];
+    markerData
+      .slice()
+      .sort((a, b) => b.count - a.count)
+      .forEach((m) => {
+        rows.push([
+          m.bairro,
+          m.cidade,
+          m.uf,
+          m.count,
+          m.prazoCounts["45min"],
+          m.prazoCounts["1h"],
+          m.prazoCounts["2h"],
+          m.ceps.map((c) => c.cep).join(" ")
+        ]);
+      });
+    const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    triggerDownload(blob, "relatorio_bairros.csv");
+  }
+
+  updateMapBtn.addEventListener("click", updateMap);
+  downloadCoordsBtn.addEventListener("click", downloadCoordsCsv);
+  downloadReportBtn.addEventListener("click", downloadBairroReport);
+  toggleNotFoundBtn.addEventListener("click", () => {
+    notFoundWrap.hidden = !notFoundWrap.hidden;
+  });
+
   // ---------- Init ----------
   function init() {
     state.modalities = defaultModalities();
@@ -657,6 +948,7 @@
     reparse();
     updateFilialPreview();
     updateFileNamePreview();
+    initMap();
   }
 
   init();
