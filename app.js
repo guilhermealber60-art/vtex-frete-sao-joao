@@ -28,6 +28,9 @@
     "2h": el("cepInput-2h")
   };
   const dedupeCheckbox = el("dedupeCheckbox");
+  const rangeCheckbox = el("rangeCheckbox");
+  const rangeHint = el("rangeHint");
+  const previewHeadRow = el("previewHeadRow");
   const countTotal = el("countTotal");
   const countValid = el("countValid");
   const countInvalid = el("countInvalid");
@@ -273,12 +276,33 @@
   });
 
   // ---------- CEP parsing ----------
-  function parseBucketText(text, prazo) {
+  function parseBucketText(text, prazo, rangeMode) {
     const lines = text.split(/\r\n|\n|\r/).map((l) => l.trim()).filter((l) => l.length > 0);
     return lines.map((line, idx) => {
+      if (rangeMode) {
+        const digits = cleanCep(line);
+        if (digits.length !== 16) {
+          return {
+            bucket: prazo, lineIndex: idx, raw: line, cepStart: "", cepEnd: "", prazo, valid: false,
+            reason: "Faixa inválida: informe os 2 CEPs (inicial e final) de 8 dígitos cada, na mesma linha."
+          };
+        }
+        const cepStart = digits.slice(0, 8);
+        const cepEnd = digits.slice(8, 16);
+        if (cepStart > cepEnd) {
+          return {
+            bucket: prazo, lineIndex: idx, raw: line, cepStart, cepEnd, prazo, valid: false,
+            reason: "CEP inicial maior que o CEP final."
+          };
+        }
+        return { bucket: prazo, lineIndex: idx, raw: line, cepStart, cepEnd, prazo, valid: true };
+      }
       const cep = cleanCep(line);
       const valid = cep.length === 8;
-      return { bucket: prazo, lineIndex: idx, raw: line, cep, prazo, valid };
+      return {
+        bucket: prazo, lineIndex: idx, raw: line, cepStart: cep, cepEnd: cep, prazo, valid,
+        reason: valid ? undefined : "CEP com quantidade de dígitos incorreta ou caractere não numérico."
+      };
     });
   }
 
@@ -289,11 +313,12 @@
     const validUnique = [];
     let duplicateCount = 0;
     validRecords.forEach((r) => {
-      if (seen.has(r.cep)) {
+      const key = `${r.cepStart}-${r.cepEnd}`;
+      if (seen.has(key)) {
         duplicateCount++;
         if (!dedupe) validUnique.push(r);
       } else {
-        seen.set(r.cep, true);
+        seen.set(key, true);
         validUnique.push(r);
       }
     });
@@ -303,13 +328,14 @@
   function reparse() {
     let allRecords = [];
     const byPrazo = {};
+    const rangeMode = rangeCheckbox.checked;
     PRAZO_KEYS.forEach((prazo) => {
-      const records = parseBucketText(cepInputs[prazo].value, prazo);
+      const records = parseBucketText(cepInputs[prazo].value, prazo, rangeMode);
       byPrazo[prazo] = records;
       allRecords = allRecords.concat(records);
     });
     const analyzed = analyzeRecords(allRecords, dedupeCheckbox.checked);
-    state.parsed = { ...analyzed, byPrazo };
+    state.parsed = { ...analyzed, byPrazo, rangeMode };
     renderTabCounts();
     renderCounters();
     renderInvalidList();
@@ -347,7 +373,8 @@
     invalid.forEach((rec) => {
       const li = document.createElement("li");
       const span = document.createElement("span");
-      span.textContent = `${rec.raw} (${PRAZO_LABELS[rec.bucket]})`;
+      const reasonText = rec.reason ? ` — ${rec.reason}` : "";
+      span.textContent = `${rec.raw} (${PRAZO_LABELS[rec.bucket]})${reasonText}`;
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "remove-btn";
@@ -365,16 +392,25 @@
   }
 
   function renderPreview() {
-    const { validUnique } = state.parsed;
+    const { validUnique, rangeMode } = state.parsed;
+    previewHeadRow.innerHTML = rangeMode
+      ? "<th>CEP inicial</th><th>CEP final</th><th>Prazo interpretado</th>"
+      : "<th>CEP</th><th>Prazo interpretado</th>";
     previewBody.innerHTML = "";
     const sample = validUnique.slice(0, 20);
     sample.forEach((rec) => {
       const tr = document.createElement("tr");
-      const tdCep = document.createElement("td");
-      tdCep.textContent = rec.cep;
+      const tdStart = document.createElement("td");
+      tdStart.textContent = rec.cepStart;
       const tdPrazo = document.createElement("td");
       tdPrazo.textContent = PRAZO_LABELS[rec.prazo];
-      tr.append(tdCep, tdPrazo);
+      if (rangeMode) {
+        const tdEnd = document.createElement("td");
+        tdEnd.textContent = rec.cepEnd;
+        tr.append(tdStart, tdEnd, tdPrazo);
+      } else {
+        tr.append(tdStart, tdPrazo);
+      }
       previewBody.appendChild(tr);
     });
     previewMore.textContent = validUnique.length > 20
@@ -396,6 +432,10 @@
     cepInputs[prazo].addEventListener("input", debounce(reparse, 150));
   });
   dedupeCheckbox.addEventListener("change", reparse);
+  rangeCheckbox.addEventListener("change", () => {
+    rangeHint.hidden = !rangeCheckbox.checked;
+    reparse();
+  });
   splitLimitInput.addEventListener("input", renderCounters);
 
   function debounce(fn, ms) {
@@ -447,7 +487,7 @@
     return validRecords.map((rec) => {
       const timeMinutes = modality.prazoTipo === "fixo" ? modality.prazoFixoMinutos : PRAZO_MINUTES[rec.prazo];
       return [
-        rec.cep, rec.cep, "", weightStart, weightEnd,
+        rec.cepStart, rec.cepEnd, "", weightStart, weightEnd,
         modality.valor, 0, 0, 1000000000,
         minutesToHHMMSS(timeMinutes), "BRA", 0
       ];

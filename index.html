@@ -49,6 +49,11 @@
 
     <div class="options-row">
       <label class="checkbox">
+        <input type="checkbox" id="rangeCheckbox" />
+        Esta lista é de faixas de CEP (CEP inicial e final na mesma linha)
+      </label>
+      <p class="hint" id="rangeHint" hidden>Cole os dois CEPs juntos em cada linha, em qualquer formato — com traço, espaço, tab ou a palavra "a" entre eles (ex.: <code>01310-100 a 01310-999</code>). O primeiro é o inicial, o segundo o final.</p>
+      <label class="checkbox">
         <input type="checkbox" id="dedupeCheckbox" checked />
         Remover CEPs duplicados automaticamente
       </label>
@@ -74,7 +79,7 @@
       <button type="button" id="togglePreviewBtn" class="link-btn">Ver amostra dos CEPs válidos</button>
       <div id="previewWrap" hidden>
         <table class="preview-table">
-          <thead><tr><th>CEP</th><th>Prazo interpretado</th></tr></thead>
+          <thead><tr id="previewHeadRow"><th>CEP</th><th>Prazo interpretado</th></tr></thead>
           <tbody id="previewBody"></tbody>
         </table>
         <p class="hint" id="previewMore"></p>
