@@ -314,10 +314,25 @@ textarea {
   min-width: 90px;
 }
 
-.modalities-table td:nth-child(1) input { min-width: 150px; }
+.modalities-table td:first-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.modalities-table td:first-child input {
+  min-width: 0;
+  width: 16px;
+  height: 16px;
+}
 
 .mod-name {
   font-weight: 600;
+}
+
+tr.mod-unchecked .mod-name,
+tr.mod-unchecked .mod-prazo-badge,
+tr.mod-unchecked .mod-prazo-fixed {
+  opacity: 0.45;
 }
 
 .mod-prazo-badge {

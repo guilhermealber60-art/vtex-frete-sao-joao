@@ -120,10 +120,10 @@
   // ---------- Modalities ----------
   function defaultModalities() {
     return [
-      { id: modalityIdCounter++, nome: "Expressa", sigla: "E", valor: 9.9, prazoTipo: "porCep", prazoFixoMinutos: 120 },
-      { id: modalityIdCounter++, nome: "Expressa SJ", sigla: "ESJ", valor: 9.9, prazoTipo: "porCep", prazoFixoMinutos: 120 },
-      { id: modalityIdCounter++, nome: "Programada", sigla: "P", valor: 5.9, prazoTipo: "fixo", prazoFixoMinutos: 10 },
-      { id: modalityIdCounter++, nome: "Programada SJ", sigla: "PSJ", valor: 5.9, prazoTipo: "fixo", prazoFixoMinutos: 10 }
+      { id: modalityIdCounter++, nome: "Rápida", sigla: "E", valor: 9.9, prazoTipo: "porCep", prazoFixoMinutos: 120, selecionada: true },
+      { id: modalityIdCounter++, nome: "Rápida SJ", sigla: "ESJ", valor: 9.9, prazoTipo: "porCep", prazoFixoMinutos: 120, selecionada: true },
+      { id: modalityIdCounter++, nome: "Programada", sigla: "P", valor: 5.9, prazoTipo: "fixo", prazoFixoMinutos: 10, selecionada: true },
+      { id: modalityIdCounter++, nome: "Programada SJ", sigla: "PSJ", valor: 5.9, prazoTipo: "fixo", prazoFixoMinutos: 10, selecionada: true }
     ];
   }
 
@@ -132,6 +132,19 @@
     state.modalities.forEach((mod) => {
       const tr = document.createElement("tr");
       tr.dataset.id = mod.id;
+
+      const tdCheck = document.createElement("td");
+      const checkInput = document.createElement("input");
+      checkInput.type = "checkbox";
+      checkInput.checked = mod.selecionada;
+      checkInput.title = "Incluir esta modalidade na geração";
+      checkInput.addEventListener("change", () => {
+        mod.selecionada = checkInput.checked;
+        tr.classList.toggle("mod-unchecked", !mod.selecionada);
+        updateFileNamePreview();
+      });
+      tdCheck.appendChild(checkInput);
+      tr.classList.toggle("mod-unchecked", !mod.selecionada);
 
       const tdNome = document.createElement("td");
       tdNome.className = "mod-name";
@@ -175,7 +188,7 @@
       });
       tdRemove.appendChild(removeBtn);
 
-      tr.append(tdNome, tdPrazo, tdValor, tdGear, tdRemove);
+      tr.append(tdCheck, tdNome, tdPrazo, tdValor, tdGear, tdRemove);
       modalitiesBody.appendChild(tr);
 
       if (expandedModalityIds.has(mod.id)) {
@@ -210,7 +223,7 @@
     const tr = document.createElement("tr");
     tr.className = "mod-config-row";
     const td = document.createElement("td");
-    td.colSpan = 5;
+    td.colSpan = 6;
 
     const grid = document.createElement("div");
     grid.className = "mod-config-grid";
@@ -251,7 +264,7 @@
     tipoSelect.value = mod.prazoTipo;
     tipoSelect.addEventListener("change", () => {
       mod.prazoTipo = tipoSelect.value;
-      const prazoCell = modalitiesBody.querySelector(`tr[data-id="${mod.id}"] td:nth-child(2)`);
+      const prazoCell = modalitiesBody.querySelector(`tr[data-id="${mod.id}"] td:nth-child(3)`);
       if (prazoCell) renderPrazoCell(prazoCell, mod);
     });
     tipoField.append(tipoLabel, tipoSelect);
@@ -269,7 +282,8 @@
       sigla: "NM" + (state.modalities.length + 1),
       valor: 0,
       prazoTipo: "fixo",
-      prazoFixoMinutos: 120
+      prazoFixoMinutos: 120,
+      selecionada: true
     });
     renderModalities();
     updateFileNamePreview();
@@ -471,7 +485,8 @@
   function updateFileNamePreview() {
     const filialRes = formatFilial(filialInput.value);
     const filial4 = filialRes.ok ? filialRes.value : "0000";
-    const sigla = state.modalities[0] ? state.modalities[0].sigla || "SIGLA" : "SIGLA";
+    const selected = state.modalities.filter((m) => m.selecionada);
+    const sigla = (selected[0] || state.modalities[0]) ? (selected[0] || state.modalities[0]).sigla || "SIGLA" : "SIGLA";
     const ext = outputFormatSelect.value;
     fileNamePreview.textContent = buildFileName(filial4, sigla, 0, 1, ext);
   }
@@ -481,38 +496,39 @@
   outputFormatSelect.addEventListener("change", updateFileNamePreview);
 
   // ---------- Sheet building ----------
+  // ZipCodeStart/ZipCodeEnd and the numeric fields are written as plain Numbers with
+  // the default "General" format, matching a known-good reference file produced by
+  // the original macro (verified by inspecting its cells directly). VTEX compares
+  // CEPs numerically, so the leading zero in e.g. "01310100" is not meaningful here.
   function buildRows(validRecords, modality) {
     const weightStart = parseFloat(weightStartInput.value) || 0;
     const weightEnd = parseFloat(weightEndInput.value) || 0;
     return validRecords.map((rec) => {
       const timeMinutes = modality.prazoTipo === "fixo" ? modality.prazoFixoMinutos : PRAZO_MINUTES[rec.prazo];
       return [
-        rec.cepStart, rec.cepEnd, "", weightStart, weightEnd,
+        Number(rec.cepStart), Number(rec.cepEnd), "", weightStart, weightEnd,
         modality.valor, 0, 0, 1000000000,
         minutesToHHMMSS(timeMinutes), "BRA", 0
       ];
     });
   }
 
-  const DECIMAL_COLUMNS = [3, 4, 5, 6, 7, 8, 11]; // WeightStart, WeightEnd, AbsoluteMoneyCost, PricePercent, PriceByExtraWeight, MaxVolume, MinimumValueInsurance
-
   function rowsToSheet(rows) {
     const aoa = [OUTPUT_HEADER, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     for (let r = 1; r <= rows.length; r++) {
-      DECIMAL_COLUMNS.forEach((c) => {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        if (ws[addr]) ws[addr].z = "0.000000";
-      });
+      const timeCostAddr = XLSX.utils.encode_cell({ r, c: 9 });
+      if (ws[timeCostAddr]) ws[timeCostAddr].z = "@"; // TimeCost, kept as text
+      delete ws[XLSX.utils.encode_cell({ r, c: 2 })]; // PolygonName, left truly empty
     }
     return ws;
   }
 
-  function sheetToXlsxBlob(ws) {
+  function sheetToXlsBlob(ws) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Frete");
-    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    return new Blob([out], { type: "application/octet-stream" });
+    const out = XLSX.write(wb, { bookType: "biff8", type: "array" });
+    return new Blob([out], { type: "application/vnd.ms-excel" });
   }
 
   function sheetToCsvBlob(ws) {
@@ -540,13 +556,14 @@
       ok = false;
     }
 
-    if (state.modalities.length === 0) {
-      modalitiesError.textContent = "Adicione ao menos uma modalidade de entrega.";
+    const selectedModalities = state.modalities.filter((m) => m.selecionada);
+    if (selectedModalities.length === 0) {
+      modalitiesError.textContent = "Selecione ao menos uma modalidade de entrega (checkbox à esquerda).";
       modalitiesError.hidden = false;
       ok = false;
     } else {
       const siglas = new Set();
-      for (const m of state.modalities) {
+      for (const m of selectedModalities) {
         if (!m.sigla || !m.sigla.trim()) {
           modalitiesError.textContent = "Todas as modalidades precisam de uma sigla (usada no nome do arquivo). Abra ⚙ Configurar para editar.";
           modalitiesError.hidden = false;
@@ -587,18 +604,19 @@
       const ext = outputFormatSelect.value;
       const chunks = chunkArray(validRecords, limit);
       const willZip = chunks.length > 1;
+      const selectedModalities = state.modalities.filter((m) => m.selecionada);
 
       log(`Filial: ${filial4}`);
       log(`CEPs válidos a exportar: ${validRecords.length}`);
-      log(`Modalidades: ${state.modalities.map((m) => m.sigla).join(", ")}`);
+      log(`Modalidades: ${selectedModalities.map((m) => m.sigla).join(", ")}`);
       if (willZip) log(`Dividindo em ${chunks.length} arquivos por modalidade (limite ${limit} linhas).`);
 
       const files = [];
-      for (const modality of state.modalities) {
+      for (const modality of selectedModalities) {
         for (let i = 0; i < chunks.length; i++) {
           const rows = buildRows(chunks[i], modality);
           const ws = rowsToSheet(rows);
-          const blob = ext === "xlsx" ? sheetToXlsxBlob(ws) : sheetToCsvBlob(ws);
+          const blob = ext === "xls" ? sheetToXlsBlob(ws) : sheetToCsvBlob(ws);
           const filename = buildFileName(filial4, modality.sigla, i, chunks.length, ext);
           files.push({ name: filename, blob });
           log(`Gerado: ${filename} (${rows.length} linhas)`);

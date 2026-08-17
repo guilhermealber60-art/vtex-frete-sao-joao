@@ -89,11 +89,12 @@
 
   <section class="card" id="section-modalities">
     <h2>3. Modalidades de entrega</h2>
-    <p class="hint">Aqui você ajusta o essencial do dia a dia: prazo e valor. Nome, sigla e tipo de prazo ficam em "⚙ Configurar" de cada linha.</p>
+    <p class="hint">Desmarque as que não quer incluir nesta geração. Nome, sigla e tipo de prazo ficam em "⚙ Configurar" de cada linha.</p>
     <div class="table-scroll">
       <table class="modalities-table">
         <thead>
           <tr>
+            <th></th>
             <th>Modalidade</th>
             <th>Prazo</th>
             <th>Valor (R$)</th>
@@ -127,8 +128,8 @@
         <div>
           <label for="outputFormat">Formato de exportação</label>
           <select id="outputFormat">
-            <option value="xlsx" selected>.xlsx (padrão — confirmar com time VTEX)</option>
-            <option value="csv">.csv (alternativa universal)</option>
+            <option value="xls" selected>.xls binário (padrão — o que a VTEX aceita)</option>
+            <option value="csv">.csv (não confirmado com a VTEX para esta importação)</option>
           </select>
         </div>
       </div>
