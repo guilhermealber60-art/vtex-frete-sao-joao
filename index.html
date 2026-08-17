@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gerador de Frete VTEX — Farmácias São João</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>Gerador de Tabelas de Frete VTEX</h1>
+  <p class="subtitle">Farmácias São João</p>
+</header>
+
+<main class="layout">
+
+  <section class="card" id="section-filial">
+    <h2>1. Filial</h2>
+    <label for="filial">Número da filial</label>
+    <input type="text" id="filial" placeholder="Ex.: 10, 896" inputmode="numeric" />
+    <p class="hint">Formatado automaticamente com 4 dígitos. Prévia: <strong id="filialPreview">—</strong></p>
+    <p class="error" id="filialError" hidden></p>
+  </section>
+
+  <section class="card" id="section-ceps">
+    <h2>2. Lista de CEPs</h2>
+    <p class="hint">Selecione o prazo e cole os CEPs correspondentes (um por linha) no campo que abrir. Você pode usar os três prazos ao mesmo tempo.</p>
+
+    <div class="prazo-tabs" id="prazoTabs">
+      <button type="button" class="prazo-tab" data-prazo="45min">45 min <span class="tab-count" id="tabCount-45min">0</span></button>
+      <button type="button" class="prazo-tab" data-prazo="1h">1 hora <span class="tab-count" id="tabCount-1h">0</span></button>
+      <button type="button" class="prazo-tab active" data-prazo="2h">2 horas <span class="tab-count" id="tabCount-2h">0</span></button>
+    </div>
+
+    <div class="prazo-panels">
+      <div class="prazo-panel" data-prazo="45min" hidden>
+        <label for="cepInput-45min">CEPs com prazo de 45 minutos</label>
+        <textarea id="cepInput-45min" rows="6" placeholder="01310-100&#10;20040-020"></textarea>
+      </div>
+      <div class="prazo-panel" data-prazo="1h" hidden>
+        <label for="cepInput-1h">CEPs com prazo de 1 hora</label>
+        <textarea id="cepInput-1h" rows="6" placeholder="01310-100&#10;20040-020"></textarea>
+      </div>
+      <div class="prazo-panel" data-prazo="2h">
+        <label for="cepInput-2h">CEPs com prazo de 2 horas (padrão)</label>
+        <textarea id="cepInput-2h" rows="6" placeholder="01310-100&#10;20040-020"></textarea>
+      </div>
+    </div>
+
+    <div class="options-row">
+      <label class="checkbox">
+        <input type="checkbox" id="dedupeCheckbox" checked />
+        Remover CEPs duplicados automaticamente
+      </label>
+    </div>
+
+    <div class="counters">
+      <div class="counter"><span class="counter-value" id="countTotal">0</span><span class="counter-label">total de linhas</span></div>
+      <div class="counter counter-ok"><span class="counter-value" id="countValid">0</span><span class="counter-label">CEPs válidos</span></div>
+      <div class="counter counter-bad"><span class="counter-value" id="countInvalid">0</span><span class="counter-label">CEPs inválidos</span></div>
+      <div class="counter counter-warn"><span class="counter-value" id="countDuplicate">0</span><span class="counter-label">duplicados</span></div>
+    </div>
+
+    <p class="warning" id="splitWarning" hidden></p>
+
+    <div class="invalid-panel">
+      <button type="button" id="toggleInvalidBtn" class="link-btn">Ver CEPs inválidos (0)</button>
+      <div id="invalidListWrap" hidden>
+        <ul id="invalidList"></ul>
+      </div>
+    </div>
+
+    <div class="preview-panel">
+      <button type="button" id="togglePreviewBtn" class="link-btn">Ver amostra dos CEPs válidos</button>
+      <div id="previewWrap" hidden>
+        <table class="preview-table">
+          <thead><tr><th>CEP</th><th>Prazo interpretado</th></tr></thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+        <p class="hint" id="previewMore"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="section-modalities">
+    <h2>3. Modalidades de entrega</h2>
+    <p class="hint">Aqui você ajusta o essencial do dia a dia: prazo e valor. Nome, sigla e tipo de prazo ficam em "⚙ Configurar" de cada linha.</p>
+    <div class="table-scroll">
+      <table class="modalities-table">
+        <thead>
+          <tr>
+            <th>Modalidade</th>
+            <th>Prazo</th>
+            <th>Valor (R$)</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="modalitiesBody"></tbody>
+      </table>
+    </div>
+    <button type="button" id="addModalityBtn" class="secondary-btn">+ Adicionar modalidade</button>
+    <p class="error" id="modalitiesError" hidden></p>
+  </section>
+
+  <section class="card" id="section-advanced">
+    <button type="button" id="toggleAdvancedBtn" class="link-btn advanced-toggle">⚙ Configurações avançadas</button>
+    <div id="advancedPanel" hidden>
+      <div class="grid-2">
+        <div>
+          <label for="weightStart">WeightStart</label>
+          <input type="number" id="weightStart" value="0" />
+        </div>
+        <div>
+          <label for="weightEnd">WeightEnd</label>
+          <input type="number" id="weightEnd" value="90000" />
+        </div>
+        <div>
+          <label for="splitLimit">Limite de linhas por arquivo</label>
+          <input type="number" id="splitLimit" value="8999" min="1" />
+        </div>
+        <div>
+          <label for="outputFormat">Formato de exportação</label>
+          <select id="outputFormat">
+            <option value="xlsx" selected>.xlsx (padrão — confirmar com time VTEX)</option>
+            <option value="csv">.csv (alternativa universal)</option>
+          </select>
+        </div>
+      </div>
+
+      <h3>Padrão de nome do arquivo</h3>
+      <p class="hint">Use <code>{filial}</code> e <code>{sigla}</code> como marcadores. Padrão: <code>{filial}</code> + separador + <code>{sigla}</code> → ex.: 0100E.xlsx</p>
+      <div class="grid-3">
+        <div>
+          <label for="namePrefix">Prefixo</label>
+          <input type="text" id="namePrefix" value="{filial}" />
+        </div>
+        <div>
+          <label for="nameSeparator">Separador</label>
+          <input type="text" id="nameSeparator" value="" />
+        </div>
+        <div>
+          <label for="nameSuffix">Sufixo</label>
+          <input type="text" id="nameSuffix" value="{sigla}" />
+        </div>
+      </div>
+      <p class="hint">Nome final de exemplo: <strong id="fileNamePreview">—</strong></p>
+    </div>
+  </section>
+
+  <section class="card" id="section-generate">
+    <h2>5. Gerar arquivos</h2>
+    <button type="button" id="generateBtn" class="primary-btn">Gerar e baixar arquivos</button>
+    <p class="error" id="generateError" hidden></p>
+    <div id="statusLog" class="status-log" hidden></div>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>Processamento 100% local no navegador. Nenhum CEP ou dado é enviado para fora deste dispositivo.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
