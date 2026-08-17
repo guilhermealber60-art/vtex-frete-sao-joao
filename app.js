@@ -494,9 +494,18 @@
     });
   }
 
+  const DECIMAL_COLUMNS = [3, 4, 5, 6, 7, 8, 11]; // WeightStart, WeightEnd, AbsoluteMoneyCost, PricePercent, PriceByExtraWeight, MaxVolume, MinimumValueInsurance
+
   function rowsToSheet(rows) {
     const aoa = [OUTPUT_HEADER, ...rows];
-    return XLSX.utils.aoa_to_sheet(aoa);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    for (let r = 1; r <= rows.length; r++) {
+      DECIMAL_COLUMNS.forEach((c) => {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        if (ws[addr]) ws[addr].z = "0.000000";
+      });
+    }
+    return ws;
   }
 
   function sheetToXlsxBlob(ws) {
