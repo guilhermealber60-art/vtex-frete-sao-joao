@@ -722,6 +722,13 @@
       if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
       return { lat, lng, bairro: (data.district || "").trim(), cidade: (data.city || "").trim(), uf: (data.state || "").trim() };
     }
+    if (source === "brasilapi") {
+      const coords = data.location && data.location.coordinates ? data.location.coordinates : null;
+      const lat = coords ? parseFloat(coords.latitude) : NaN;
+      const lng = coords ? parseFloat(coords.longitude) : NaN;
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+      return { lat, lng, bairro: (data.neighborhood || "").trim(), cidade: (data.city || "").trim(), uf: (data.state || "").trim() };
+    }
     const lat = parseFloat(data.latitude);
     const lng = parseFloat(data.longitude);
     if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
@@ -742,7 +749,16 @@
         if (info) return info;
       }
     } catch (e) {
-      // AwesomeAPI indisponivel - tenta a reserva abaixo.
+      // AwesomeAPI indisponivel - tenta a proxima opcao abaixo.
+    }
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`);
+      if (resp.ok) {
+        const info = pickGeoInfo(await resp.json(), "brasilapi");
+        if (info) return info;
+      }
+    } catch (e) {
+      // BrasilAPI indisponivel - tenta a ultima reserva abaixo.
     }
     const token = cepAbertoTokenInput.value.trim();
     if (token) {
