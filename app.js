@@ -688,6 +688,7 @@
   let markerData = [];
   let geoCache = loadGeoCache();
   let geoQueriesThisRun = 0;
+  let networkErrorsThisRun = 0;
 
   function loadGeoCache() {
     try {
@@ -741,6 +742,11 @@
     };
   }
 
+  function logGeoNetworkError(source, cep, err) {
+    networkErrorsThisRun++;
+    console.error(`[geocodeCep] ${source} falhou para ${cep}:`, err);
+  }
+
   async function geocodeCep(cep) {
     try {
       const resp = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`);
@@ -750,6 +756,7 @@
       }
     } catch (e) {
       // AwesomeAPI indisponivel - tenta a proxima opcao abaixo.
+      logGeoNetworkError("AwesomeAPI", cep, e);
     }
     try {
       const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`);
@@ -759,6 +766,7 @@
       }
     } catch (e) {
       // BrasilAPI indisponivel - tenta a ultima reserva abaixo.
+      logGeoNetworkError("BrasilAPI", cep, e);
     }
     const token = cepAbertoTokenInput.value.trim();
     if (token) {
@@ -772,6 +780,7 @@
         }
       } catch (e) {
         // CEP Aberto indisponivel ou sem CORS - CEP fica como nao encontrado.
+        logGeoNetworkError("CEP Aberto", cep, e);
       }
     }
     return null;
@@ -829,6 +838,7 @@
     markersLayer.clearLayers();
     markerData = [];
     geoQueriesThisRun = 0;
+    networkErrorsThisRun = 0;
 
     const rangeMode = state.parsed.rangeMode;
     const notFound = [];
@@ -914,7 +924,11 @@
     }
 
     renderNotFound(notFound);
-    mapStatus.textContent = `${markerData.length} bairro(s) localizados a partir de ${records.length} registro(s) (${geoQueriesThisRun} consulta(s) nova(s), resto veio do cache). ${notFound.length} nao encontrado(s).`;
+    let statusMsg = `${markerData.length} bairro(s) localizados a partir de ${records.length} registro(s) (${geoQueriesThisRun} consulta(s) nova(s), resto veio do cache). ${notFound.length} nao encontrado(s).`;
+    if (networkErrorsThisRun > 0) {
+      statusMsg += ` Atencao: ${networkErrorsThisRun} chamada(s) as APIs de CEP falharam por erro de rede (nao "CEP inexistente") - verifique se o navegador/proxy esta bloqueando cep.awesomeapi.com.br, brasilapi.com.br ou www.cepaberto.com (veja o console do navegador, F12, para detalhes).`;
+    }
+    mapStatus.textContent = statusMsg;
     downloadCoordsBtn.disabled = markerData.length === 0;
     downloadReportBtn.disabled = markerData.length === 0;
     updateMapBtn.disabled = false;
