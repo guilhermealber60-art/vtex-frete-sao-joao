@@ -340,16 +340,22 @@
   function analyzeRecords(records, dedupe) {
     const invalid = records.filter((r) => !r.valid);
     const validRecords = records.filter((r) => r.valid);
-    const seen = new Map();
+    const seen = new Map(); // key -> índice do registro vencedor em validUnique
     const validUnique = [];
     let duplicateCount = 0;
     validRecords.forEach((r) => {
       const key = `${r.cepStart}-${r.cepEnd}`;
-      if (seen.has(key)) {
+      const winnerIdx = seen.get(key);
+      if (winnerIdx !== undefined) {
         duplicateCount++;
-        if (!dedupe) validUnique.push(r);
+        if (!dedupe) {
+          validUnique.push(r);
+        } else if (PRAZO_MINUTES[r.prazo] < PRAZO_MINUTES[validUnique[winnerIdx].prazo]) {
+          // Duplicado com prazo diferente: o menor prazo sempre prevalece.
+          validUnique[winnerIdx] = r;
+        }
       } else {
-        seen.set(key, true);
+        seen.set(key, validUnique.length);
         validUnique.push(r);
       }
     });
