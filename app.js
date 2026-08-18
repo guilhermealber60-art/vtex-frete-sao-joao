@@ -680,7 +680,7 @@
   // cover" actually calls for. Free CEP APIs return bairro/city/state alongside
   // lat/lng, so this needs no extra requests beyond what geocoding already does.
   const PRAZO_COLORS = { "45min": "#2e7d32", "1h": "#f9a825", "2h": "#c62828" };
-  const GEO_CACHE_KEY = "vtexFreteApp.geoCache.v3";
+  const GEO_CACHE_KEY = "vtexFreteApp.geoCache.v4";
   const NO_BAIRRO_LABEL = "Bairro nao informado";
 
   let map = null;
@@ -790,8 +790,13 @@
     let info = geoCache[cep];
     if (info === undefined) {
       info = await geocodeCep(cep);
-      geoCache[cep] = info;
-      saveGeoCache();
+      // So resultados encontrados sao guardados no cache: um "nao encontrado" pode
+      // ser uma falha de rede passageira, entao cada rodada tenta de novo em vez
+      // de ficar preso num resultado negativo antigo.
+      if (info !== null) {
+        geoCache[cep] = info;
+        saveGeoCache();
+      }
       geoQueriesThisRun++;
       await sleep(120);
     }
