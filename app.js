@@ -27,6 +27,7 @@
     "1h": el("cepInput-1h"),
     "2h": el("cepInput-2h")
   };
+  const clearCepsBtn = el("clearCepsBtn");
   const dedupeCheckbox = el("dedupeCheckbox");
   const rangeCheckbox = el("rangeCheckbox");
   const rangeHint = el("rangeHint");
@@ -112,10 +113,6 @@
     statusLog.hidden = false;
     statusLog.textContent += msg + "\n";
     statusLog.scrollTop = statusLog.scrollHeight;
-  }
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   function csvEscape(value) {
@@ -468,6 +465,12 @@
   PRAZO_KEYS.forEach((prazo) => {
     cepInputs[prazo].addEventListener("input", debounce(reparse, 150));
   });
+  clearCepsBtn.addEventListener("click", () => {
+    const hasContent = PRAZO_KEYS.some((prazo) => cepInputs[prazo].value.trim().length > 0);
+    if (hasContent && !confirm("Limpar todos os CEPs colados (45 min, 1h e 2h)?")) return;
+    PRAZO_KEYS.forEach((prazo) => { cepInputs[prazo].value = ""; });
+    reparse();
+  });
   dedupeCheckbox.addEventListener("change", reparse);
   rangeCheckbox.addEventListener("change", () => {
     rangeHint.hidden = !rangeCheckbox.checked;
@@ -747,60 +750,83 @@
     console.error(`[geocodeCep] ${source} falhou para ${cep}:`, err);
   }
 
-  async function geocodeCep(cep) {
+  const GEO_SOURCES = [
+    { key: "awesome", label: "AwesomeAPI", url: (cep) => `https://cep.awesomeapi.com.br/json/${cep}` },
+    { key: "brasilapi", label: "BrasilAPI", url: (cep) => `https://brasilapi.com.br/api/cep/v2/${cep}` },
+    {
+      key: "cepaberto",
+      label: "CEP Aberto",
+      url: (cep) => `https://www.cepaberto.com/api/v3/cep?cep=${cep}`,
+      opts: () => ({ headers: { Authorization: `Token token=${cepAbertoTokenInput.value.trim()}` } }),
+      enabled: () => !!cepAbertoTokenInput.value.trim()
+    }
+  ];
+  const GEO_CONCURRENCY = 6;
+
+  async function fetchFromSource(source, cep) {
     try {
-      const resp = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`);
-      if (resp.ok) {
-        const info = pickGeoInfo(await resp.json(), "awesome");
-        if (info) return info;
-      }
+      const resp = await fetch(source.url(cep), source.opts ? source.opts() : undefined);
+      if (!resp.ok) return null;
+      return pickGeoInfo(await resp.json(), source.key);
     } catch (e) {
-      // AwesomeAPI indisponivel - tenta a proxima opcao abaixo.
-      logGeoNetworkError("AwesomeAPI", cep, e);
+      logGeoNetworkError(source.label, cep, e);
+      return null;
     }
-    try {
-      const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`);
-      if (resp.ok) {
-        const info = pickGeoInfo(await resp.json(), "brasilapi");
-        if (info) return info;
-      }
-    } catch (e) {
-      // BrasilAPI indisponivel - tenta a ultima reserva abaixo.
-      logGeoNetworkError("BrasilAPI", cep, e);
-    }
-    const token = cepAbertoTokenInput.value.trim();
-    if (token) {
-      try {
-        const resp = await fetch(`https://www.cepaberto.com/api/v3/cep?cep=${cep}`, {
-          headers: { Authorization: `Token token=${token}` }
-        });
-        if (resp.ok) {
-          const info = pickGeoInfo(await resp.json(), "cepaberto");
-          if (info) return info;
-        }
-      } catch (e) {
-        // CEP Aberto indisponivel ou sem CORS - CEP fica como nao encontrado.
-        logGeoNetworkError("CEP Aberto", cep, e);
-      }
-    }
-    return null;
   }
 
-  async function resolveCep(cep) {
-    let info = geoCache[cep];
-    if (info === undefined) {
-      info = await geocodeCep(cep);
-      // So resultados encontrados sao guardados no cache: um "nao encontrado" pode
-      // ser uma falha de rede passageira, entao cada rodada tenta de novo em vez
-      // de ficar preso num resultado negativo antigo.
-      if (info !== null) {
-        geoCache[cep] = info;
-        saveGeoCache();
+  async function runWithConcurrency(items, limit, worker) {
+    let idx = 0;
+    async function runNext() {
+      while (idx < items.length) {
+        const item = items[idx++];
+        await worker(item);
       }
-      geoQueriesThisRun++;
-      await sleep(120);
     }
-    return info;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, runNext);
+    await Promise.all(runners);
+  }
+
+  // Busca em fases por fonte, nao por CEP: consulta TODOS os CEPs pendentes na
+  // AwesomeAPI em paralelo (limitado a GEO_CONCURRENCY por vez), e so leva pra
+  // proxima fonte quem nao foi encontrado - em vez de esperar 3 chamadas
+  // sequenciais por CEP, cada CEP faz so 1 chamada na maioria dos casos.
+  async function resolveCepsBatch(ceps, onProgress) {
+    const results = new Map();
+    let pending = [];
+    ceps.forEach((cep) => {
+      const cached = geoCache[cep];
+      if (cached !== undefined) results.set(cep, cached);
+      else pending.push(cep);
+    });
+
+    const sources = GEO_SOURCES.filter((s) => !s.enabled || s.enabled());
+    for (let s = 0; s < sources.length && pending.length; s++) {
+      const source = sources[s];
+      const stillMissing = [];
+      let doneInPhase = 0;
+      const total = pending.length;
+      onProgress(`Consultando ${source.label} (${s + 1}/${sources.length})... 0/${total}`);
+      await runWithConcurrency(pending, GEO_CONCURRENCY, async (cep) => {
+        const info = await fetchFromSource(source, cep);
+        geoQueriesThisRun++;
+        if (info) {
+          results.set(cep, info);
+          geoCache[cep] = info;
+        } else {
+          stillMissing.push(cep);
+        }
+        doneInPhase++;
+        onProgress(`Consultando ${source.label} (${s + 1}/${sources.length})... ${doneInPhase}/${total}`);
+      });
+      pending = stillMissing;
+    }
+
+    // So resultados encontrados sao guardados no cache: um "nao encontrado" pode
+    // ser uma falha de rede passageira, entao cada rodada tenta de novo em vez
+    // de ficar preso num resultado negativo antigo.
+    pending.forEach((cep) => results.set(cep, null));
+    saveGeoCache();
+    return results;
   }
 
   function dominantPrazo(counts) {
@@ -848,7 +874,6 @@
     const rangeMode = state.parsed.rangeMode;
     const notFound = [];
     const bairroGroups = {};
-    let done = 0;
 
     function addToBairro(info, cep, prazo) {
       const bairro = info.bairro || NO_BAIRRO_LABEL;
@@ -873,22 +898,23 @@
       g.prazoCounts[prazo]++;
     }
 
-    for (const rec of records) {
-      mapStatus.textContent = rangeMode
-        ? `Geocodificando faixas... ${done}/${records.length}`
-        : `Geocodificando CEPs... ${done}/${records.length}`;
+    const cepsNeeded = new Set();
+    records.forEach((rec) => {
+      cepsNeeded.add(rec.cepStart);
+      if (rangeMode) cepsNeeded.add(rec.cepEnd);
+    });
+    const results = await resolveCepsBatch(Array.from(cepsNeeded), (msg) => { mapStatus.textContent = msg; });
 
+    for (const rec of records) {
       if (!rangeMode) {
-        const info = await resolveCep(rec.cepStart);
-        done++;
+        const info = results.get(rec.cepStart);
         if (info) addToBairro(info, rec.cepStart, rec.prazo);
         else notFound.push(rec.cepStart);
         continue;
       }
 
-      const startInfo = await resolveCep(rec.cepStart);
-      const endInfo = await resolveCep(rec.cepEnd);
-      done++;
+      const startInfo = results.get(rec.cepStart);
+      const endInfo = results.get(rec.cepEnd);
       const label = `${rec.cepStart} a ${rec.cepEnd}`;
       if (startInfo) addToBairro(startInfo, rec.cepStart, rec.prazo);
       if (endInfo) addToBairro(endInfo, rec.cepEnd, rec.prazo);

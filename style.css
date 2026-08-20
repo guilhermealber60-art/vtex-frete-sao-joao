@@ -153,6 +153,20 @@ textarea {
   background: rgba(13, 107, 79, 0.15);
 }
 
+.clear-btn {
+  margin-left: auto;
+  background: var(--bad-bg);
+  color: var(--danger);
+  border: 1px solid #eec5c2;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.clear-btn:hover { background: #f6d9d6; }
+
 .prazo-panels {
   margin-top: 10px;
 }
