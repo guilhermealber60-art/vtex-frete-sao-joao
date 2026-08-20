@@ -501,6 +501,15 @@ tr.mod-unchecked .mod-prazo-fixed {
   line-height: 1.4;
 }
 
+.bairro-marker span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
 .bairro-label {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid var(--border);

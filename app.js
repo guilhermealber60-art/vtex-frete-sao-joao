@@ -716,7 +716,12 @@
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
-    markersLayer = L.layerGroup().addTo(map);
+    // Agrupa bairros proximos num icone de cluster (com contagem) em vez de
+    // empilhar marcadores e rotulos permanentes uns sobre os outros; o cluster
+    // se abre em marcadores individuais conforme o usuario da zoom.
+    markersLayer = typeof L.markerClusterGroup === "function"
+      ? L.markerClusterGroup({ maxClusterRadius: 45, spiderfyOnMaxZoom: true, showCoverageOnHover: false }).addTo(map)
+      : L.layerGroup().addTo(map);
   }
 
   function pickGeoInfo(data, source) {
@@ -927,8 +932,14 @@
       const lat = g.latSum / g.count;
       const lng = g.lngSum / g.count;
       const color = PRAZO_COLORS[dominantPrazo(g.prazoCounts)];
-      const marker = L.circleMarker([lat, lng], { radius: 9, weight: 1.5, color: "#fff", fillColor: color, fillOpacity: 0.9 });
-      marker.bindTooltip(g.bairro, { permanent: true, direction: "top", offset: [0, -6], className: "bairro-label" });
+      const icon = L.divIcon({
+        className: "bairro-marker",
+        html: `<span style="background:${color}"></span>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8]
+      });
+      const marker = L.marker([lat, lng], { icon });
+      marker.bindTooltip(g.bairro, { permanent: true, direction: "top", offset: [0, -10], className: "bairro-label" });
       const sample = g.ceps
         .slice(0, 15)
         .map((c) => `${c.cep} (${PRAZO_LABELS[c.prazo]})`)
